@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>File Converter</title>
+  <style>
+    /* Basic styling for a user-friendly interface */
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f0f0;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+    }
+    label {
+      display: block;
+      margin-top: 15px;
+    }
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #28a745;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #218838;
+    }
+    #progress, #downloadLink {
+      margin-top: 20px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>File Converter</h1>
+    
+    <label for="fileInput">Choose a file:</label>
+    <input type="file" id="fileInput">
+    
+    <label for="conversionSelect">Select conversion type:</label>
+    <select id="conversionSelect">
+      <option value="mp4-to-mp3">MP4 to MP3 (Audio Extraction)</option>
+      <option value="mp4-to-gif">MP4 to GIF</option>
+      <option value="jpg-to-png">JPG to PNG</option>
+      <option value="png-to-jpg">PNG to JPG</option>
+    </select>
+    
+    <button id="convertBtn">Convert</button>
+    
+    <div id="progress"></div>
+    <div id="downloadLink"></div>
+  </div>
+  
+  <!-- Include FFmpeg.wasm for video conversion options -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script>
+    // Listen for the Convert button click
+    document.getElementById('convertBtn').addEventListener('click', async () => {
+      const fileInput = document.getElementById('fileInput');
+      const conversionType = document.getElementById('conversionSelect').value;
+      const progressDiv = document.getElementById('progress');
+      const downloadDiv = document.getElementById('downloadLink');
+
+      // Clear any previous messages
+      progressDiv.textContent = '';
+      downloadDiv.innerHTML = '';
+
+      if (fileInput.files.length === 0) {
+        alert('Please select a file.');
+        return;
+      }
+      
+      const file = fileInput.files[0];
+
+      // Choose conversion method based on the selected option
+      if (conversionType === 'mp4-to-mp3' || conversionType === 'mp4-to-gif') {
+        await convertVideo(file, conversionType);
+      } else if (conversionType === 'jpg-to-png' || conversionType === 'png-to-jpg') {
+        convertImage(file, conversionType);
+      } else {
+        alert('Conversion type not supported.');
+      }
+    });
+
+    // Function to handle video conversion using FFmpeg.wasm
+    async function convertVideo(file, conversionType) {
+      const { createFFmpeg, fetchFile } = FFmpeg;
+      const ffmpeg = createFFmpeg({ log: true });
+      const progressDiv = document.getElementById('progress');
+      const downloadDiv = document.getElementById('downloadLink');
+      
+      progressDiv.textContent = 'Loading FFmpeg core...';
+      if (!ffmpeg.isLoaded()) {
+        await ffmpeg.load();
+      }
+      
+      // Write the file to FFmpeg’s virtual filesystem
+      const inputFileName = file.name;
+      ffmpeg.FS('writeFile', inputFileName, await fetchFile(file));
+      
+      let outputFileName = '';
+      let ffmpegCommand = [];
+      
+      if (conversionType === 'mp4-to-mp3') {
+        outputFileName = 'output.mp3';
+        // Extract audio from video
+        ffmpegCommand = ['-i', inputFileName, '-q:a', '0', '-map', 'a', outputFileName];
+      } else if (conversionType === 'mp4-to-gif') {
+        outputFileName = 'output.gif';
+        // Convert video to GIF (adjust parameters as needed)
+        ffmpegCommand = ['-i', inputFileName, '-vf', 'fps=10,scale=320:-1:flags=lanczos', '-gifflags', '+transdiff', outputFileName];
+      }
+      
+      progressDiv.textContent = 'Processing conversion...';
+      await ffmpeg.run(...ffmpegCommand);
+      
+      // Read the result from FFmpeg’s filesystem
+      const data = ffmpeg.FS('readFile', outputFileName);
+      
+      // Create a Blob and generate a download URL
+      const mimeType = conversionType === 'mp4-to-mp3' ? 'audio/mpeg' : 'image/gif';
+      const blob = new Blob([data.buffer], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      
+      downloadDiv.innerHTML = `<a href="${url}" download="${outputFileName}">Download Converted File</a>`;
+      progressDiv.textContent = 'Conversion complete!';
+    }
+
+    // Function to handle image conversion using the Canvas API
+    function convertImage(file, conversionType) {
+      const progressDiv = document.getElementById('progress');
+      const downloadDiv = document.getElementById('downloadLink');
+      progressDiv.textContent = 'Processing image conversion...';
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          // Create a canvas to draw the image
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          
+          let outputFormat = '';
+          let extension = '';
+          if (conversionType === 'jpg-to-png') {
+            outputFormat = 'image/png';
+            extension = 'png';
+          } else if (conversionType === 'png-to-jpg') {
+            outputFormat = 'image/jpeg';
+            extension = 'jpg';
+          }
+          
+          // Convert the canvas image to a Blob in the desired format
+          canvas.toBlob(function(blob) {
+            const url = URL.createObjectURL(blob);
+            downloadDiv.innerHTML = `<a href="${url}" download="converted.${extension}">Download Converted Image</a>`;
+            progressDiv.textContent = 'Conversion complete!';
+          }, outputFormat);
+        }
+        img.src = event.target.result;
+      }
+      reader.readAsDataURL(file);
+    }
+  </script>
+</body>
+</html>
